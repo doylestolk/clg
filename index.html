@@ -60,6 +60,11 @@
         #downloadLink {
             margin-top: 20px;
         }
+        #errorMessage {
+            color: red;
+            margin-top: 20px;
+            display: none;
+        }
     </style>
 </head>
 <body>
@@ -73,12 +78,14 @@
         </div>
         <button class="button" onclick="generateCSV()">Generate CSV</button>
         <a id="downloadLink" style="display:none" class="button">Download CSV</a>
+        <div id="errorMessage">Invalid XML file. Please select a valid XML file.</div>
     </div>
 
     <script>
         function generateCSV() {
             const fileInput = document.getElementById('fileInput');
             const privateCheckbox = document.getElementById('privateCheckbox');
+            const errorMessage = document.getElementById('errorMessage');
             const file = fileInput.files[0];
             if (!file) {
                 alert('Please select an XML file.');
@@ -90,6 +97,14 @@
                 const xmlString = event.target.result;
                 const parser = new DOMParser();
                 const xmlDoc = parser.parseFromString(xmlString, "application/xml");
+
+                if (xmlDoc.getElementsByTagName("parsererror").length > 0) {
+                    errorMessage.style.display = 'block';
+                    return;
+                } else {
+                    errorMessage.style.display = 'none';
+                }
+
                 console.log("Parsed XML Document:", xmlDoc); // Debugging line
 
                 let csvContent = 'NR,ID,SEALS,UNIT,WEIGHT,CONSIGNEE,FCL/LCL,POL,REMARKS\n';
