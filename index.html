@@ -50,12 +50,27 @@
             cursor: pointer;
             text-decoration: none;
         }
+        .button.green {
+            background-color: limegreen;
+            border-color: limegreen;
+        }
+
         .button:hover, label:hover {
             background-color: #0056b3;
             border-color: #0056b3;
         }
+        .button.green:hover {
+            background-color: forestgreen;
+            border-color: forestgreen;
+        }
         .checkbox {
             margin: 10px 0;
+        }
+        .checkbox label {
+            padding: 0;
+            color: black;
+            border: 0;
+            background: unset;
         }
         #downloadLink {
             margin-top: 20px;
@@ -70,21 +85,36 @@
 <body>
     <div class="container">
         <h1>Container List Generator</h1>
-        <input type="file" id="fileInput" accept=".xml">
-        <label for="fileInput">Choose XML File</label>
+        <input type="file" id="fileInput" accept=".xml" onchange="updateLabel()">
+        <label for="fileInput" id="fileLabel">Choose XML File</label>
         <div class="checkbox">
             <input type="checkbox" id="privateCheckbox">
             <label for="privateCheckbox">Private</label>
         </div>
-        <button class="button" onclick="generateCSV()">Generate CSV</button>
+        <div class="checkbox">
+            <input type="checkbox" id="tallyCheckbox">
+            <label for="tallyCheckbox">Tally</label>
+        </div>
+        <button class="button green" onclick="generateCSV()">Generate CSV</button>
         <a id="downloadLink" style="display:none" class="button">Download CSV</a>
         <div id="errorMessage">Invalid XML file. Please select a valid XML file.</div>
     </div>
 
     <script>
+        function updateLabel() {
+            const fileInput = document.getElementById('fileInput');
+            const fileLabel = document.getElementById('fileLabel');
+            if (fileInput.files.length > 0) {
+                fileLabel.textContent = fileInput.files[0].name;
+            } else {
+                fileLabel.textContent = 'Choose XML File';
+            }
+        }
+
         function generateCSV() {
             const fileInput = document.getElementById('fileInput');
             const privateCheckbox = document.getElementById('privateCheckbox');
+            const tallyCheckbox = document.getElementById('tallyCheckbox');
             const errorMessage = document.getElementById('errorMessage');
             const file = fileInput.files[0];
             if (!file) {
@@ -107,7 +137,10 @@
 
                 console.log("Parsed XML Document:", xmlDoc); // Debugging line
 
-                let csvContent = 'NR,BL,ID,UNIT,WEIGHT,REMARKS 1,REMARKS 2, REMARKS 3,GOODS DESCRIPTION,CONSIGNEE,FCL/LCL,POL,REMARKS\n';
+                let csvContent = tallyCheckbox.checked 
+                    ? 'NR,ID,UNIT,WEIGHT,REMARKS 1,CONSIGNEE,FCL/LCL,POL,REMARKS\n' 
+                    : 'NR,BL,ID,UNIT,WEIGHT,REMARKS 1,REMARKS 2, REMARKS 3,GOODS DESCRIPTION,CONSIGNEE,FCL/LCL,POL,REMARKS\n';
+
                 let nr = 1;
 
                 const bolSegments = xmlDoc.getElementsByTagName('Bol_segment');
@@ -154,7 +187,12 @@
 
                         let remarks = shippingMarks === 'NO MARKS' ? '' : shippingMarks;
 
-                        csvContent += `${nr},${bolReference},${ctnReference},${typeOfContainer},${ctnGrossMass},${marks1},${marks2},${marks3},"${goodsDescription}",${consigneeName},${emptyFull},${placeOfLoadingCode},${remarks}\n`;
+                        if (tallyCheckbox.checked) {
+                            csvContent += `${nr},${ctnReference},${typeOfContainer},${ctnGrossMass},${marks1},${consigneeName},${emptyFull},${placeOfLoadingCode},${remarks}\n`;
+                        } else {
+                            csvContent += `${nr},${bolReference},${ctnReference},${typeOfContainer},${ctnGrossMass},${marks1},${marks2},${marks3},"${goodsDescription}",${consigneeName},${emptyFull},${placeOfLoadingCode},${remarks}\n`;
+                        }
+                        
                         nr++;
                     }
                 }
