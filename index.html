@@ -107,7 +107,7 @@
 
                 console.log("Parsed XML Document:", xmlDoc); // Debugging line
 
-                let csvContent = 'NR,ID,SEALS,UNIT,WEIGHT,CONSIGNEE,FCL/LCL,POL,REMARKS\n';
+                let csvContent = 'NR,BL,ID,UNIT,WEIGHT,REMARKS 1,REMARKS 2, REMARKS 3,GOODS DESCRIPTION,CONSIGNEE,FCL/LCL,POL,REMARKS\n';
                 let nr = 1;
 
                 const bolSegments = xmlDoc.getElementsByTagName('Bol_segment');
@@ -115,8 +115,9 @@
 
                 for (let i = 0; i < bolSegments.length; i++) {
                     const bolSegment = bolSegments[i];
-                    console.log(`bolSegment [${i}]:`, bolSegment); // Debugging line
                     
+                    const bolReference = bolSegment.getElementsByTagName('Bol_reference')[0].textContent;
+                    console.log(bolReference);
                     const consigneeElement = bolSegment.getElementsByTagName('Consignee_name')[0];
                     let consigneeName = consigneeElement ? consigneeElement.textContent : '';
                     if (privateCheckbox.checked) {
@@ -137,7 +138,13 @@
                         const ctnReferenceElement = ctnSegment.getElementsByTagName('Ctn_reference')[0];
                         const ctnReference = ctnReferenceElement ? ctnReferenceElement.textContent : '';
                         const marks1Element = ctnSegment.getElementsByTagName('Marks1')[0];
+                        const marks2Element = ctnSegment.getElementsByTagName('Marks2')[0];
+                        const marks3Element = ctnSegment.getElementsByTagName('Marks3')[0];
                         const marks1 = marks1Element ? marks1Element.textContent : '';
+                        const marks2 = marks2Element ? marks2Element.textContent : '';
+                        const marks3 = marks3Element ? marks3Element.textContent : '';
+                        const goodsDescriptionElement = ctnSegment.getElementsByTagName('Ctn_goods_description')[0];
+                        const goodsDescription = goodsDescriptionElement ? goodsDescriptionElement.textContent : '';
                         const typeOfContainerElement = ctnSegment.getElementsByTagName('Type_of_container')[0];
                         const typeOfContainer = typeOfContainerElement ? typeOfContainerElement.textContent : '';
                         const ctnGrossMassElement = ctnSegment.getElementsByTagName('Ctn_gross_mass')[0];
@@ -147,7 +154,7 @@
 
                         let remarks = shippingMarks === 'NO MARKS' ? '' : shippingMarks;
 
-                        csvContent += `${nr},${ctnReference},${marks1},${typeOfContainer},${ctnGrossMass},${consigneeName},${emptyFull},${placeOfLoadingCode},${remarks}\n`;
+                        csvContent += `${nr},${bolReference},${ctnReference},${typeOfContainer},${ctnGrossMass},${marks1},${marks2},${marks3},"${goodsDescription}",${consigneeName},${emptyFull},${placeOfLoadingCode},${remarks}\n`;
                         nr++;
                     }
                 }
