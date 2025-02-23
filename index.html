@@ -1,9 +1,13 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Container List Generator</title>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Container List Generator (with Remembered Excel)</title>
+
+    <!-- XlsxPopulate for reading/writing Excel while preserving formatting -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx-populate/browser/xlsx-populate.min.js"></script>
+
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -20,6 +24,8 @@
             padding: 30px;
             border-radius: 10px;
             box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            width: 650px;
+            max-width: 95%;
         }
         h1 {
             margin-bottom: 20px;
@@ -38,10 +44,12 @@
             background-color: #007bff;
             color: white;
             cursor: pointer;
+            margin-right: 10px;
         }
         .button {
             display: inline-block;
             margin-top: 10px;
+            margin-right: 5px;
             padding: 10px 20px;
             border: 2px solid #007bff;
             border-radius: 5px;
@@ -54,7 +62,6 @@
             background-color: limegreen;
             border-color: limegreen;
         }
-
         .button:hover, label:hover {
             background-color: #0056b3;
             border-color: #0056b3;
@@ -70,143 +77,366 @@
             padding: 0;
             color: black;
             border: 0;
-            background: unset;
+            background: none;
+            cursor: pointer;
         }
-        #downloadLink {
+        #downloadLink, #downloadExcelLink {
             margin-top: 20px;
+            display: none;
         }
         #errorMessage {
             color: red;
             margin-top: 20px;
             display: none;
         }
+        #excelRowInput {
+            width: 70px;
+            margin-left: 10px;
+        }
+        hr {
+            margin: 20px 0;
+        }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>Container List Generator</h1>
-        <input type="file" id="fileInput" accept=".xml" onchange="updateLabel()">
-        <label for="fileInput" id="fileLabel">Choose XML File</label>
-        <div class="checkbox">
-            <input type="checkbox" id="privateCheckbox">
-            <label for="privateCheckbox">Private</label>
-        </div>
-        <div class="checkbox">
-            <input type="checkbox" id="tallyCheckbox">
-            <label for="tallyCheckbox">Tally</label>
-        </div>
-        <button class="button green" onclick="generateCSV()">Generate CSV</button>
-        <a id="downloadLink" style="display:none" class="button">Download CSV</a>
-        <div id="errorMessage">Invalid XML file. Please select a valid XML file.</div>
+<div class="container">
+    <h1>Container List Generator</h1>
+
+    <!-- XML File selection -->
+    <input type="file" id="xmlFileInput" accept=".xml" onchange="updateLabel('xmlFileInput', 'xmlFileLabel')" />
+    <label for="xmlFileInput" id="xmlFileLabel">Choose XML File</label>
+    <div class="checkbox">
+        <input type="checkbox" id="privateCheckbox" />
+        <label for="privateCheckbox">Private</label>
     </div>
+    <div class="checkbox">
+        <input type="checkbox" id="tallyCheckbox" />
+        <label for="tallyCheckbox">Tally</label>
+    </div>
+    <button class="button green" onclick="generateCSV()">Generate CSV</button>
+    <a id="downloadLink" class="button">Download CSV</a>
+    <div id="errorMessage">Invalid XML file. Please select a valid XML file.</div>
 
-    <script>
-        function updateLabel() {
-            const fileInput = document.getElementById('fileInput');
-            const fileLabel = document.getElementById('fileLabel');
-            if (fileInput.files.length > 0) {
-                fileLabel.textContent = fileInput.files[0].name;
-            } else {
-                fileLabel.textContent = 'Choose XML File';
+    <hr />
+
+    <!-- Excel File selection + Row Input + "Skip CSV header" -->
+    <input type="file" id="excelFileInput" accept=".xlsx,.xls" onchange="onExcelFileSelected()" />
+    <label for="excelFileInput" id="excelFileLabel">Choose Excel File</label>
+    <br><br>
+    <label>Insert CSV starting at row:</label>
+    <input type="number" id="excelRowInput" placeholder="Row" min="1" />
+    <br><br>
+    <div class="checkbox">
+        <input type="checkbox" id="skipHeaderCheckbox" />
+        <label for="skipHeaderCheckbox">Skip CSV header row</label>
+    </div>
+    <br>
+    <button class="button green" onclick="insertDataIntoExcel()">Insert CSV into Excel</button>
+    <a id="downloadExcelLink" class="button">Download Updated Excel</a>
+</div>
+
+<script>
+    // -------------------- GLOBALS / STATE --------------------
+    let generatedCSVData = "";       // Will store CSV from XML
+    let workbookGlobal = null;       // Will store the parsed Excel workbook from XlsxPopulate
+
+    /**
+     * On page load, restore from localStorage:
+     *  - Possibly an Excel file (base64) => parse it
+     *  - Row input
+     *  - Skip-header checkbox
+     */
+    window.addEventListener("DOMContentLoaded", () => {
+        // 1) Attempt to restore Excel file from localStorage
+        const savedExcelBase64 = localStorage.getItem("savedExcelBase64");
+        if (savedExcelBase64) {
+            try {
+                // Convert base64 back to array buffer
+                const arrayBuff = base64ToArrayBuffer(savedExcelBase64);
+                // Parse workbook with XlsxPopulate
+                XlsxPopulate.fromDataAsync(arrayBuff)
+                    .then(workbook => {
+                        workbookGlobal = workbook;
+                        document.getElementById("excelFileLabel").textContent = "Previously Loaded Excel";
+                    })
+                    .catch(err => {
+                        console.warn("Failed to parse stored Excel file:", err);
+                        // If parsing fails, clear from storage
+                        localStorage.removeItem("savedExcelBase64");
+                    });
+            } catch (e) {
+                console.warn("Error reading stored Excel data:", e);
+                localStorage.removeItem("savedExcelBase64");
             }
         }
 
-        function generateCSV() {
-            const fileInput = document.getElementById('fileInput');
-            const privateCheckbox = document.getElementById('privateCheckbox');
-            const tallyCheckbox = document.getElementById('tallyCheckbox');
-            const errorMessage = document.getElementById('errorMessage');
-            const file = fileInput.files[0];
-            if (!file) {
-                alert('Please select an XML file.');
+        // 2) Restore row input
+        const savedRow = localStorage.getItem("savedExcelRow");
+        if (savedRow) {
+            document.getElementById("excelRowInput").value = savedRow;
+        }
+
+        // 3) Restore "skip header" checkbox
+        const savedSkipHeader = localStorage.getItem("savedSkipHeader");
+        if (savedSkipHeader === "true") {
+            document.getElementById("skipHeaderCheckbox").checked = true;
+        }
+    });
+
+    /**
+     * When the user selects a new Excel file:
+     *  - Read it into an array buffer
+     *  - Convert to base64
+     *  - Store in localStorage
+     *  - Parse to a workbook object and store globally
+     */
+    function onExcelFileSelected() {
+        const fileInput = document.getElementById("excelFileInput");
+        const fileLabel = document.getElementById("excelFileLabel");
+        if (!fileInput.files.length) {
+            fileLabel.textContent = "Choose Excel File";
+            return;
+        }
+
+        const file = fileInput.files[0];
+        fileLabel.textContent = file.name;
+
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const arrayBuffer = e.target.result;
+
+            // Convert to base64
+            const base64String = arrayBufferToBase64(arrayBuffer);
+
+            // Store in localStorage (Warning: can fail for large files)
+            localStorage.setItem("savedExcelBase64", base64String);
+
+            // Parse with XlsxPopulate
+            XlsxPopulate.fromDataAsync(arrayBuffer)
+                .then(workbook => {
+                    workbookGlobal = workbook;
+                })
+                .catch(err => {
+                    console.error("Failed to parse newly selected Excel:", err);
+                    alert("Could not parse Excel file. See console for details.");
+                });
+        };
+        reader.readAsArrayBuffer(file);
+    }
+
+    /**
+     * Helper: Convert array buffer to base64
+     */
+    function arrayBufferToBase64(buffer) {
+        let binary = "";
+        const bytes = new Uint8Array(buffer);
+        for (let i = 0; i < bytes.length; i++) {
+            binary += String.fromCharCode(bytes[i]);
+        }
+        return btoa(binary);
+    }
+
+    /**
+     * Helper: Convert base64 to array buffer
+     */
+    function base64ToArrayBuffer(base64) {
+        const binaryString = atob(base64);
+        const len = binaryString.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+        }
+        return bytes.buffer;
+    }
+
+    /**
+     * Watch changes on "excelRowInput" to store in localStorage
+     */
+    document.getElementById("excelRowInput").addEventListener("input", function() {
+        localStorage.setItem("savedExcelRow", this.value);
+    });
+
+    /**
+     * Watch changes on "skipHeaderCheckbox" to store in localStorage
+     */
+    document.getElementById("skipHeaderCheckbox").addEventListener("change", function() {
+        localStorage.setItem("savedSkipHeader", this.checked ? "true" : "false");
+    });
+
+    /**
+     * Update file label text
+     */
+    function updateLabel(fileInputId, labelId) {
+        const fileInput = document.getElementById(fileInputId);
+        const label = document.getElementById(labelId);
+        if (fileInput.files.length > 0) {
+            label.textContent = fileInput.files[0].name;
+        } else {
+            label.textContent = fileInputId === 'xmlFileInput' ? 'Choose XML File' : 'Choose Excel File';
+        }
+    }
+
+    /**
+     * Generate CSV from selected XML file
+     */
+    function generateCSV() {
+        const fileInput = document.getElementById('xmlFileInput');
+        const privateCheckbox = document.getElementById('privateCheckbox');
+        const tallyCheckbox = document.getElementById('tallyCheckbox');
+        const errorMessage = document.getElementById('errorMessage');
+
+        if (!fileInput.files || fileInput.files.length === 0) {
+            alert('Please select an XML file.');
+            return;
+        }
+
+        const file = fileInput.files[0];
+        const reader = new FileReader();
+
+        reader.onload = function(event) {
+            const xmlString = event.target.result;
+            const parser = new DOMParser();
+            const xmlDoc = parser.parseFromString(xmlString, "application/xml");
+
+            if (xmlDoc.getElementsByTagName("parsererror").length > 0) {
+                errorMessage.style.display = 'block';
                 return;
+            } else {
+                errorMessage.style.display = 'none';
             }
 
-            const reader = new FileReader();
-            reader.onload = function(event) {
-                const xmlString = event.target.result;
-                const parser = new DOMParser();
-                const xmlDoc = parser.parseFromString(xmlString, "application/xml");
+            // Build CSV header
+            let csvContent = tallyCheckbox.checked
+                ? 'NR,ID,UNIT,WEIGHT,REMARKS 1,CONSIGNEE,FCL/LCL,POL,REMARKS\n'
+                : 'NR,BL,ID,UNIT,WEIGHT,REMARKS 1,REMARKS 2,REMARKS 3,GOODS DESCRIPTION,CONSIGNEE,FCL/LCL,POL,REMARKS\n';
 
-                if (xmlDoc.getElementsByTagName("parsererror").length > 0) {
-                    errorMessage.style.display = 'block';
-                    return;
-                } else {
-                    errorMessage.style.display = 'none';
+            let nr = 1;
+
+            const bolSegments = xmlDoc.getElementsByTagName('Bol_segment');
+            for (let i = 0; i < bolSegments.length; i++) {
+                const bolSegment = bolSegments[i];
+
+                const bolReference = getTextSafe(bolSegment, 'Bol_reference');
+                let consigneeName  = getTextSafe(bolSegment, 'Consignee_name');
+                const polCode      = getTextSafe(bolSegment, 'Place_of_loading_code');
+                const shippingMarks= getTextSafe(bolSegment, 'Shipping_marks');
+
+                if (privateCheckbox.checked) {
+                    consigneeName = 'Suriname Freight Systems';
                 }
 
-                console.log("Parsed XML Document:", xmlDoc); // Debugging line
+                const ctnSegments = bolSegment.getElementsByTagName('ctn_segment');
+                for (let j = 0; j < ctnSegments.length; j++) {
+                    const ctnSegment = ctnSegments[j];
+                    const ctnRef        = getTextSafe(ctnSegment, 'Ctn_reference');
+                    const marks1        = getTextSafe(ctnSegment, 'Marks1');
+                    const marks2        = getTextSafe(ctnSegment, 'Marks2');
+                    const marks3        = getTextSafe(ctnSegment, 'Marks3');
+                    const goodsDesc     = getTextSafe(ctnSegment, 'Ctn_goods_description');
+                    const typeContainer = getTextSafe(ctnSegment, 'Type_of_container');
+                    const ctnGrossMass  = getTextSafe(ctnSegment, 'Ctn_gross_mass');
+                    const emptyFull     = getTextSafe(ctnSegment, 'Empty_Full');
 
-                let csvContent = tallyCheckbox.checked 
-                    ? 'NR,ID,UNIT,WEIGHT,REMARKS 1,CONSIGNEE,FCL/LCL,POL,REMARKS\n' 
-                    : 'NR,BL,ID,UNIT,WEIGHT,REMARKS 1,REMARKS 2, REMARKS 3,GOODS DESCRIPTION,CONSIGNEE,FCL/LCL,POL,REMARKS\n';
+                    let remarks = (shippingMarks === 'NO MARKS') ? '' : shippingMarks;
 
-                let nr = 1;
-
-                const bolSegments = xmlDoc.getElementsByTagName('Bol_segment');
-                console.log("Number of bol_segment elements found:", bolSegments.length); // Debugging line
-
-                for (let i = 0; i < bolSegments.length; i++) {
-                    const bolSegment = bolSegments[i];
-                    
-                    const bolReference = bolSegment.getElementsByTagName('Bol_reference')[0].textContent;
-                    console.log(bolReference);
-                    const consigneeElement = bolSegment.getElementsByTagName('Consignee_name')[0];
-                    let consigneeName = consigneeElement ? consigneeElement.textContent : '';
-                    if (privateCheckbox.checked) {
-                        consigneeName = 'Suriname Freight Systems';
+                    if (tallyCheckbox.checked) {
+                        csvContent += `${nr},${ctnRef},${typeContainer},${ctnGrossMass},${marks1},${consigneeName},${emptyFull},${polCode},${remarks}\n`;
+                    } else {
+                        // If goodsDesc might contain commas, wrap in quotes
+                        csvContent += `${nr},${bolReference},${ctnRef},${typeContainer},${ctnGrossMass},${marks1},${marks2},${marks3},"${goodsDesc}",${consigneeName},${emptyFull},${polCode},${remarks}\n`;
                     }
-                    const polElement = bolSegment.getElementsByTagName('Place_of_loading_code')[0];
-                    const placeOfLoadingCode = polElement ? polElement.textContent : '';
-                    const shippingMarksElement = bolSegment.getElementsByTagName('Shipping_marks')[0];
-                    const shippingMarks = shippingMarksElement ? shippingMarksElement.textContent : '';
 
-                    const ctnSegments = bolSegment.getElementsByTagName('ctn_segment');
-                    console.log(`Number of ctn_segment elements in bolSegment [${i}]:`, ctnSegments.length); // Debugging line
-
-                    for (let j = 0; j < ctnSegments.length; j++) {
-                        const ctnSegment = ctnSegments[j];
-                        console.log(`ctnSegment [${j}]:`, ctnSegment); // Debugging line
-
-                        const ctnReferenceElement = ctnSegment.getElementsByTagName('Ctn_reference')[0];
-                        const ctnReference = ctnReferenceElement ? ctnReferenceElement.textContent : '';
-                        const marks1Element = ctnSegment.getElementsByTagName('Marks1')[0];
-                        const marks2Element = ctnSegment.getElementsByTagName('Marks2')[0];
-                        const marks3Element = ctnSegment.getElementsByTagName('Marks3')[0];
-                        const marks1 = marks1Element ? marks1Element.textContent : '';
-                        const marks2 = marks2Element ? marks2Element.textContent : '';
-                        const marks3 = marks3Element ? marks3Element.textContent : '';
-                        const goodsDescriptionElement = ctnSegment.getElementsByTagName('Ctn_goods_description')[0];
-                        const goodsDescription = goodsDescriptionElement ? goodsDescriptionElement.textContent : '';
-                        const typeOfContainerElement = ctnSegment.getElementsByTagName('Type_of_container')[0];
-                        const typeOfContainer = typeOfContainerElement ? typeOfContainerElement.textContent : '';
-                        const ctnGrossMassElement = ctnSegment.getElementsByTagName('Ctn_gross_mass')[0];
-                        const ctnGrossMass = ctnGrossMassElement ? ctnGrossMassElement.textContent : '';
-                        const emptyFullElement = ctnSegment.getElementsByTagName('Empty_Full')[0];
-                        const emptyFull = emptyFullElement ? emptyFullElement.textContent : '';
-
-                        let remarks = shippingMarks === 'NO MARKS' ? '' : shippingMarks;
-
-                        if (tallyCheckbox.checked) {
-                            csvContent += `${nr},${ctnReference},${typeOfContainer},${ctnGrossMass},${marks1},${consigneeName},${emptyFull},${placeOfLoadingCode},${remarks}\n`;
-                        } else {
-                            csvContent += `${nr},${bolReference},${ctnReference},${typeOfContainer},${ctnGrossMass},${marks1},${marks2},${marks3},"${goodsDescription}",${consigneeName},${emptyFull},${placeOfLoadingCode},${remarks}\n`;
-                        }
-                        
-                        nr++;
-                    }
+                    nr++;
                 }
+            }
 
-                const blob = new Blob([csvContent], { type: 'text/csv' });
-                const url = URL.createObjectURL(blob);
-                const downloadLink = document.getElementById('downloadLink');
-                downloadLink.href = url;
-                downloadLink.download = 'output.csv';
-                downloadLink.style.display = 'block';
-                downloadLink.textContent = 'Download CSV';
-            };
-            reader.readAsText(file);
+            // Store CSV data globally
+            generatedCSVData = csvContent;
+
+            // Provide a CSV download link
+            const blob = new Blob([csvContent], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const downloadLink = document.getElementById('downloadLink');
+            downloadLink.href = url;
+            downloadLink.download = 'output.csv';
+            downloadLink.style.display = 'inline-block';
+            downloadLink.textContent = 'Download CSV';
+        };
+
+        reader.readAsText(file);
+    }
+
+    /**
+     * Safely get text content from an XML element
+     */
+    function getTextSafe(parent, tagName) {
+        const el = parent.getElementsByTagName(tagName)[0];
+        return el ? el.textContent.trim() : '';
+    }
+
+    /**
+     * Insert CSV data into the (possibly remembered) Excel file
+     * while preserving formatting via XlsxPopulate.
+     */
+    function insertDataIntoExcel() {
+        if (!generatedCSVData) {
+            alert("No CSV data available. Please generate the CSV first.");
+            return;
         }
-    </script>
+
+        // If we haven't yet parsed a workbook (either from localStorage or user selection), we can't proceed
+        if (!workbookGlobal) {
+            alert("Please select or load an Excel file first.");
+            return;
+        }
+
+        const rowInput = document.getElementById('excelRowInput').value;
+        const startRow = parseInt(rowInput, 10);
+        if (isNaN(startRow) || startRow < 1) {
+            alert("Invalid row number.");
+            return;
+        }
+
+        // Should we skip the first line (header) of CSV?
+        const skipHeader = document.getElementById('skipHeaderCheckbox').checked;
+
+        // Split CSV into rows => naive approach; if CSV can have commas inside quotes, use a real CSV parser
+        const lines = generatedCSVData.trim().split("\n");
+        let csvRows = lines.map(line => line.split(","));
+
+        // If skipping header row, remove the first array item
+        if (skipHeader && csvRows.length > 0) {
+            csvRows.shift();
+        }
+
+        // Insert into the first worksheet
+        const sheet = workbookGlobal.sheet(0);
+
+        // Insert each row from CSV
+        for (let i = 0; i < csvRows.length; i++) {
+            const currentExcelRow = startRow + i;
+            const rowData = csvRows[i];
+            for (let colIndex = 0; colIndex < rowData.length; colIndex++) {
+                // XlsxPopulate uses 1-based indexing
+                sheet.cell(currentExcelRow, colIndex + 1).value(rowData[colIndex]);
+            }
+        }
+
+        // Now export the updated workbook
+        workbookGlobal.outputAsync()
+            .then(blob => {
+                const url = URL.createObjectURL(blob);
+                const downloadLink = document.getElementById('downloadExcelLink');
+                downloadLink.href = url;
+                downloadLink.download = "updated.xlsx";
+                downloadLink.style.display = 'inline-block';
+                downloadLink.textContent = 'Download Updated Excel';
+            })
+            .catch(err => {
+                console.error("Error exporting updated workbook:", err);
+                alert("Could not export updated Excel file.");
+            });
+    }
+</script>
 </body>
 </html>
